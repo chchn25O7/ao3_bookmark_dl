@@ -31,7 +31,7 @@ Files are saved under `downloads/<FORMAT>/<title>_<work_id>.<ext>` by default. H
 
 **The HTML option is different from ao3's inbuilt Download -> HTML**
 
-`--formats HTML` instead captures the work in the same way a a browser's "Save As -> Webpage, Complete" would, saving to `downloads/HTML/<title>_<id>.html`
+`--formats HTML` instead captures the work in the same way a browser's "Save As -> Webpage, Complete" would, saving to `downloads/HTML/<title>_<id>.html`
 with a `downloads/HTML/<title>_<id>_files/` folder with the images/CSS/fonts it uses. 
 
 This means that custom HTML and workskins should look similar to how they're intended to look.
