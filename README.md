@@ -34,7 +34,7 @@ Files are saved under `downloads/<FORMAT>/<title>_<work_id>.<ext>` by default. H
 `--formats HTML` instead captures the work in the same way a browser's "Save As -> Webpage, Complete" would, saving to `downloads/HTML/<title>_<id>.html`
 with a `downloads/HTML/<title>_<id>_files/` folder with the images/CSS/fonts it uses. 
 
-This means that custom HTML and workskins should look similar to how they're intended to look.
+This means that custom HTML and workskins should look similar to how they're intended to look. This also means if you have a site skin on by default (eg: Reversi), your HTML downloads will also have that skin on.
 
 ### Options
 
