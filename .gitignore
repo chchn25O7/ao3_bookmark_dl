@@ -1,9 +1,0 @@
-.env
-.venv/
-downloads/
-manifest.json
-.pw-profile/
-__pycache__/
-*.pyc
-refresh.bat
-.claude/
