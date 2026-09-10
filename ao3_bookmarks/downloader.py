@@ -87,7 +87,7 @@ def _fetch_format_bytes(browser: Browser, url: str, title: str, fmt: str) -> byt
 
 def _process_work(work, browser: Browser, config: Config, manifest: Manifest, summary: Summary, index: int):
     pending_formats = [
-        fmt for fmt in config.formats if not manifest.has(work.id, fmt) 
+        fmt for fmt in config.formats if (config.force or not manifest.has(work.id, fmt)) 
         # get all formats that haven't been downloaded before
     ]
     if not pending_formats:
