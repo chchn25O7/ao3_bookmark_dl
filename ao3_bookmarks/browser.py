@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import logging
 import os
@@ -13,6 +14,21 @@ from playwright.sync_api import sync_playwright
 log = logging.getLogger("ao3_bookmarks")
 
 NAV_TIMEOUT_MS = 45_000
+DOWNLOAD_START_TIMEOUT_MS = 15_000
+BOT_CHECK_TIMEOUT_MS = 120_000
+DOWNLOAD_NAV_ERRORS = ("Download is starting", "net::ERR_ABORTED")
+IN_PAGE_FETCH_JS = """async (url) => {
+    const r = await fetch(url, {credentials: "include"});
+    if (!r.ok) throw new Error(`in-page fetch got HTTP ${r.status}`);
+    const blob = await r.blob();
+    const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(blob);
+    });
+    return dataUrl.slice(dataUrl.indexOf(",") + 1);
+}"""
 RETRYABLE_STATUSES = {429, 503}
 ASSET_RESOURCE_TYPES = {"image", "stylesheet", "font"}
 ILLEGAL_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
@@ -82,9 +98,66 @@ class Browser:
         return soup, (response.status if response else None)
 
     def fetch_bytes(self, url: str) -> bytes:
+        """Downloads url through the real browser tab, so AO3's bot check
+        ("Shields are up!") can be passed before the file is served."""
         self._cooldown()
-        response = self.context.request.get(url)
-        return response.body()
+        downloads = []
+        file_responses = []  # file opened in the tab (eg pdf viewer) instead of downloading
+
+        def on_download(download):  # playwright needs a plain function here, not a builtin like list.append
+            downloads.append(download)
+
+        def on_response(response):
+            try:
+                headers = response.headers
+                if (response.request.is_navigation_request() and response.frame == self.page.main_frame
+                        and response.ok and "text/html" not in headers.get("content-type", "")
+                        and "attachment" not in headers.get("content-disposition", "")):
+                    file_responses.append(response)
+            except PlaywrightError:
+                pass
+
+        self.page.on("download", on_download)
+        self.page.on("response", on_response)
+        try:
+            timeout_ms = DOWNLOAD_START_TIMEOUT_MS
+            try:
+                self.page.goto(url, wait_until="load")
+            except PlaywrightError as e:
+                # chromium reports a navigation that turns into a download as one of these
+                if not any(msg in str(e) for msg in DOWNLOAD_NAV_ERRORS):
+                    raise
+            else:
+                if "Shields are up" in self.page.title():
+                    timeout_ms = BOT_CHECK_TIMEOUT_MS
+                    log.warning(
+                        "AO3 bot check shown; solve it in the browser window if it doesn't pass by itself "
+                        "(waiting up to %ds)...", timeout_ms // 1000,
+                    )
+
+            waited_ms = 0
+            while not downloads and not file_responses and waited_ms < timeout_ms:
+                self.page.wait_for_timeout(500)
+                waited_ms += 500
+        finally:
+            self.page.remove_listener("download", on_download)
+            self.page.remove_listener("response", on_response)
+
+        if not downloads and file_responses:
+            # the tab's own response body is the pdf viewer wrapper, so re-fetch from inside the
+            # tab: same origin, cookies and browser, so it gets past the bot check like the tab did
+            self.page.wait_for_load_state("load")
+            encoded = self.page.evaluate(IN_PAGE_FETCH_JS, file_responses[0].url)
+            return base64.b64decode(encoded)
+        if not downloads:
+            raise RuntimeError(
+                f"no download started; browser showed {self.page.title()!r} at {self.page.url}"
+            )
+        download = downloads[0]
+        with open(download.path(), "rb") as f:
+            content = f.read()
+        download.delete()
+        return content
 
     def save_complete_page(self, url: str, html_path: str, assets_dir: str):
         """Saves the fully-rendered page at url as a self-contained bundle: html_path

@@ -14,7 +14,8 @@ log = logging.getLogger("ao3_bookmarks")
 
 MAX_WORK_ATTEMPTS = 5
 ILLEGAL_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
-WORK_URL = "https://archiveofourown.org/works/{id}?view_adult=true&view_full_work=true"
+FORMAT_MAGIC = {"PDF": b"%PDF", "EPUB": b"PK"}
+WORK_URL ="https://archiveofourown.org/works/{id}?view_adult=true&view_full_work=true"
 
 
 @dataclass
@@ -67,10 +68,20 @@ def _download_link_for_format(soup, fmt: str, work_url: str) -> str | None:
     return None
 
 
+def _looks_valid(content: bytes, fmt: str) -> bool:
+    if fmt in FORMAT_MAGIC:
+        return content.startswith(FORMAT_MAGIC[fmt])
+    head = content[:200].lstrip().lower()
+    return not (head.startswith(b"<!doctype html") or head.startswith(b"<html"))
+
+
 def _fetch_format_bytes(browser: Browser, url: str, title: str, fmt: str) -> bytes | None:
     for attempt in range(1, MAX_WORK_ATTEMPTS + 1):
         try:
-            return browser.fetch_bytes(url)
+            content = browser.fetch_bytes(url)
+            if not _looks_valid(content, fmt):
+                raise ValueError(f"got a {len(content)}-byte non-{fmt} response (likely a bot check/error page)")
+            return content
         except Exception as e:
             if attempt < MAX_WORK_ATTEMPTS:
                 wait = backoff_seconds(attempt)
